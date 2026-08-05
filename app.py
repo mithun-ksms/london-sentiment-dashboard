@@ -38,12 +38,12 @@ st.markdown("---")
 # READ API KEY FROM SECRETS
 # st.secrets reads from Streamlit's secure settings
 # Never put the actual key in your code
-API_KEY = st.secrets["AIzaSyC0WRQPsDmpUdy4R1PH5vWrN9qZDKxWnKk"]
+API_KEY = st.secrets["YOUTUBE_API_KEY"]
 
 # Connect to YouTube API
 # "youtube" = which Google service
 # "v3" = version 3
-youtube = build("youtube", "v3", developerKey="AIzaSyC0WRQPsDmpUdy4R1PH5vWrN9qZDKxWnKk")
+youtube = build("youtube", "v3", developerKey=API_KEY)
 
 # SIDEBAR CONTROLS
 st.sidebar.header("🔍 Controls")
