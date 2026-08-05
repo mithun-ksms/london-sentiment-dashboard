@@ -3,77 +3,94 @@ import pandas as pd
 import plotly.express as px
 from googleapiclient.discovery import build
 
-# PAGE SETUP
-# Must always be the very first streamlit command
+# Must be the very first streamlit command always
 st.set_page_config(
     page_title="London Sentiment Dashboard",
     page_icon="🇬🇧",
     layout="wide"
 )
 
+# Custom CSS to make it look nicer
+# unsafe_allow_html=True lets us inject raw CSS
+st.markdown("""
+    <style>
+    .metric-card {
+        background: #1e2130;
+        border-radius: 12px;
+        padding: 1.2rem 1.5rem;
+        text-align: center;
+        border: 1px solid #2d3250;
+        margin-bottom: 1rem;
+    }
+    .metric-number { font-size: 2rem; font-weight: 700; margin: 0; }
+    .metric-label  { font-size: 0.85rem; color: #8892b0; margin: 0; }
+    .positive { color: #2ecc71; }
+    .negative { color: #e74c3c; }
+    .neutral  { color: #95a5a6; }
+    </style>
+""", unsafe_allow_html=True)
+
 # TITLE
 st.title("🇬🇧 London YouTube Sentiment Dashboard")
 st.markdown("Analysing **live** YouTube comments about London restaurants, attractions & tourism")
 st.markdown("---")
 
-# LOAD API KEY FROM STREAMLIT SECRETS
-# st.secrets reads from the Secrets section we set up
-# This keeps our key safe — never appears in code
+# READ API KEY FROM SECRETS
+# st.secrets reads from Streamlit's secure settings
+# Never put the actual key in your code
 API_KEY = st.secrets["YOUTUBE_API_KEY"]
 
-# CONNECT TO YOUTUBE
-# build() creates our connection to YouTube API
+# Connect to YouTube API
 # "youtube" = which Google service
-# "v3" = version 3 of the API
+# "v3" = version 3
 youtube = build("youtube", "v3", developerKey=API_KEY)
 
-# SIDEBAR — user controls
+# SIDEBAR CONTROLS
 st.sidebar.header("🔍 Controls")
 
-# Selectbox = dropdown menu
-# User picks which topic to analyse
+# Dropdown — user picks which London topic to analyse
 topic = st.sidebar.selectbox(
     "Choose a topic",
     options=[
         "London restaurant review",
-        "London tourist attractions",
+        "London tourist attractions vlog",
         "London food markets",
         "London travel guide",
-        "London street food"
+        "London museums review"
     ]
 )
 
-# Slider = draggable number picker
-# User picks how many videos to search
+# Slider — user picks how many videos to search
+# min_value = minimum they can pick
+# max_value = maximum they can pick
+# value = default starting value
 num_videos = st.sidebar.slider(
-    "Number of videos to analyse",
-    min_value=3,    # minimum they can pick
-    max_value=10,   # maximum they can pick
-    value=5         # default value
+    "Number of videos",
+    min_value=2,
+    max_value=8,
+    value=3
 )
 
-# Button — app only fetches data when user clicks this
-# This saves API quota — don't fetch on every page load
-fetch_button = st.sidebar.button("🔄 Fetch Live Data")
-
-# SENTIMENT FILTER
+# Radio button — filter results by sentiment
 sentiment_filter = st.sidebar.radio(
-    "Filter by Sentiment",
+    "Filter by sentiment",
     options=["All", "POSITIVE", "NEGATIVE"]
 )
 
-# FETCH DATA FUNCTION
-# @st.cache_data means streamlit remembers results
-# so if same topic is searched again it doesn't refetch
-# ttl=3600 means cache expires after 1 hour (3600 seconds)
+# Button — only fetch data when user clicks this
+# Saves API quota — don't fetch on every page load
+fetch_btn = st.sidebar.button("🔄 Fetch Live Data")
+
+# FETCH FUNCTION
+# @st.cache_data remembers results so clicking filters
+# doesn't refetch from YouTube every time
+# ttl=3600 means cache expires after 1 hour
 @st.cache_data(ttl=3600)
-def fetch_youtube_comments(topic, num_videos):
+def fetch_comments(topic, num_videos):
 
-    # Tell the user something is happening
-    # st.spinner shows a loading animation
-    comments_list = []
+    all_rows = []
 
-    # Step 1 — Search YouTube for videos on this topic
+    # Search YouTube for videos on this topic
     search_response = youtube.search().list(
         q=topic,
         type="video",
@@ -81,10 +98,8 @@ def fetch_youtube_comments(topic, num_videos):
         maxResults=num_videos
     ).execute()
 
-    # Step 2 — For each video fetch its comments
+    # Loop through each video
     for item in search_response["items"]:
-
-        # Get video ID and title from search results
         video_id    = item["id"]["videoId"]
         video_title = item["snippet"]["title"]
 
@@ -93,35 +108,31 @@ def fetch_youtube_comments(topic, num_videos):
             comments_response = youtube.commentThreads().list(
                 part="snippet",
                 videoId=video_id,
-                maxResults=30,          # 30 comments per video
-                textFormat="plainText"  # no HTML tags in text
+                maxResults=25,
+                textFormat="plainText"
             ).execute()
 
-            # Loop through each comment
             for comment in comments_response["items"]:
-
-                # Navigate into the nested dictionary to get comment text
-                # snippet > topLevelComment > snippet > textDisplay
                 text = comment["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
-
-                comments_list.append({
+                all_rows.append({
                     "video_title": video_title,
-                    "comment": text,
-                    "video_id": video_id
+                    "comment":     text,
+                    "video_id":    video_id
                 })
 
         except Exception:
-            # Some videos have comments disabled — skip them silently
             continue
 
-    return pd.DataFrame(comments_list)
+    return pd.DataFrame(all_rows)
 
 # SENTIMENT FUNCTION
+# @st.cache_data means sentiment only runs once per dataset
+# not every time user clicks a filter
 @st.cache_data(ttl=3600)
-def run_sentiment(df):
+def run_sentiment(_df):
 
-    # We use a lightweight model here
-    # it runs on Streamlit's free servers so needs to be small
+    # Load model inside function
+    # @st.cache_data means this only runs once
     from transformers import pipeline
     analyser = pipeline(
         "sentiment-analysis",
@@ -133,65 +144,93 @@ def run_sentiment(df):
     labels = []
     scores = []
 
-    for comment in df["comment"]:
+    for comment in _df["comment"]:
         try:
-            result  = analyser(comment[:512])
+            result = analyser(comment[:512])
             labels.append(result[0]["label"])
             scores.append(round(result[0]["score"], 2))
         except Exception:
             labels.append("NEUTRAL")
             scores.append(0.5)
 
-    df["sentiment"] = labels
-    df["score"]     = scores
-    return df
+    _df = _df.copy()
+    _df["sentiment"] = labels
+    _df["score"]     = scores
+    return _df
 
-# MAIN APP LOGIC
-# Only runs when user clicks the Fetch button
-if fetch_button:
+# MAIN LOGIC
+# Only runs when user clicks the fetch button
+if fetch_btn:
 
-    with st.spinner("Fetching live YouTube comments..."):
-        df_raw = fetch_youtube_comments(topic, num_videos)
+    with st.spinner("🔍 Fetching live YouTube comments..."):
+        df_raw = fetch_comments(topic, num_videos)
 
     if len(df_raw) == 0:
-        # st.warning shows a yellow warning box
         st.warning("No comments found — try a different topic.")
 
     else:
-        with st.spinner("Running sentiment analysis..."):
+        with st.spinner("🧠 Running AI sentiment analysis..."):
             df = run_sentiment(df_raw)
 
-        # APPLY SENTIMENT FILTER
+        # APPLY FILTER
+        # If user picked All show everything
+        # Otherwise filter to just that sentiment
         if sentiment_filter != "All":
-            filtered_df = df[df["sentiment"] == sentiment_filter]
+            filtered = df[df["sentiment"] == sentiment_filter]
         else:
-            filtered_df = df
+            filtered = df
+
+        # COUNT METRICS
+        total    = len(df)
+        positive = len(df[df["sentiment"] == "POSITIVE"])
+        negative = len(df[df["sentiment"] == "NEGATIVE"])
+        pct      = round((positive / total) * 100) if total > 0 else 0
 
         # METRIC CARDS
-        col1, col2, col3, col4 = st.columns(4)
+        # st.columns splits page into side by side sections
+        c1, c2, c3, c4 = st.columns(4)
 
-        with col1:
-            st.metric("💬 Comments Analysed", len(df))
-        with col2:
-            st.metric("📹 Videos Searched", num_videos)
-        with col3:
-            positive = len(df[df["sentiment"] == "POSITIVE"])
-            st.metric("😊 Positive", positive)
-        with col4:
-            negative = len(df[df["sentiment"] == "NEGATIVE"])
-            st.metric("😞 Negative", negative)
+        with c1:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <p class="metric-number">{total}</p>
+                    <p class="metric-label">💬 Comments</p>
+                </div>""", unsafe_allow_html=True)
+
+        with c2:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <p class="metric-number positive">{positive}</p>
+                    <p class="metric-label">😊 Positive</p>
+                </div>""", unsafe_allow_html=True)
+
+        with c3:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <p class="metric-number negative">{negative}</p>
+                    <p class="metric-label">😞 Negative</p>
+                </div>""", unsafe_allow_html=True)
+
+        with c4:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <p class="metric-number">{pct}%</p>
+                    <p class="metric-label">⭐ Positive Rate</p>
+                </div>""", unsafe_allow_html=True)
 
         st.markdown("---")
 
         # CHARTS
-        chart1, chart2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-        with chart1:
+        with col1:
             st.subheader("📊 Sentiment Split")
 
+            # Count sentiments for pie chart
             counts = df["sentiment"].value_counts().reset_index()
             counts.columns = ["sentiment", "count"]
 
+            # hole=0.4 makes it a donut chart
             fig1 = px.pie(
                 counts,
                 values="count",
@@ -204,22 +243,29 @@ if fetch_button:
                     "NEUTRAL":  "#95a5a6"
                 }
             )
+            # Transparent background so it fits dark theme
+            fig1.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white"
+            )
             st.plotly_chart(fig1, use_container_width=True)
 
-        with chart2:
+        with col2:
             st.subheader("📈 Sentiment by Video")
 
-            # Group by video title and sentiment
-            # Count how many of each per video
+            # groupby groups rows by two columns together
+            # size() counts how many rows in each group
+            # reset_index converts back to flat table
             grouped = df.groupby(
                 ["video_title", "sentiment"]
             ).size().reset_index(name="count")
 
-            # Shorten long video titles so they fit on chart
-            # lambda is a tiny one-line function
-            # x[:40] takes first 40 characters
+            # Shorten long titles so they fit on chart
+            # lambda = tiny one-line function
+            # x[:35] takes first 35 characters
             grouped["video_title"] = grouped["video_title"].apply(
-                lambda x: x[:40] + "..." if len(x) > 40 else x
+                lambda x: x[:35] + "..." if len(x) > 35 else x
             )
 
             fig2 = px.bar(
@@ -234,21 +280,31 @@ if fetch_button:
                     "NEUTRAL":  "#95a5a6"
                 }
             )
-            fig2.update_layout(xaxis_tickangle=-30)
+            fig2.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+                xaxis_tickangle=-30
+            )
             st.plotly_chart(fig2, use_container_width=True)
 
         st.markdown("---")
 
         # COMMENTS TABLE
-        st.subheader("💬 Live Comments")
+        st.subheader("💬 Comments")
 
-        for i, row in filtered_df.iterrows():
+        # iterrows() loops through each row one at a time
+        # i = row number, row = the actual data
+        for i, row in filtered.iterrows():
             emoji = "😊" if row["sentiment"] == "POSITIVE" else "😞"
-            with st.expander(f"{emoji} {row['comment'][:80]}..."):
+
+            # expander = collapsible box
+            # shows first line, hides rest until clicked
+            with st.expander(f"{emoji} {str(row['comment'])[:80]}..."):
                 st.write(row["comment"])
-                st.caption(f"Video: {row['video_title']}")
+                st.caption(f"📹 {row['video_title']}")
                 st.caption(f"Sentiment: **{row['sentiment']}** | Confidence: **{row['score']}**")
 
 else:
-    # This shows when app first loads before button is clicked
-    st.info("👈 Choose a topic in the sidebar and click **Fetch Live Data** to begin.")
+    # Shows when app first loads before button clicked
+    st.info("👈 Pick a topic in the sidebar and click **Fetch Live Data** to begin.")
