@@ -72,13 +72,13 @@ def analyse_sentiment(texts):
                 HF_API_URL,
                 headers=HF_HEADERS,
                 json={"inputs": batch},
-                timeout=30  # give up after 30 seconds
+                timeout=70  # give up after 30 seconds
             )
 
             # If model is loading HuggingFace returns 503
             # We wait 10 seconds and try again
             if response.status_code == 503:
-                time.sleep(10)
+                time.sleep(30)
                 response = requests.post(
                     HF_API_URL,
                     headers=HF_HEADERS,
