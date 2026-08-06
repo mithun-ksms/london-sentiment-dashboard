@@ -83,7 +83,8 @@ def analyse_sentiment(texts):
                     HF_API_URL,
                     headers=HF_HEADERS,
                     json={"inputs": batch},
-                    timeout=30
+                    timeout=70
+                    
                 )
 
             # .json() converts response to Python list
