@@ -57,9 +57,9 @@ def analyse_sentiment(texts):
     # Batch processing is faster than one at a time
     results = []
 # Wake up the model first with a test request
-requests.post(HF_API_URL, headers=HF_HEADERS, 
+    requests.post(HF_API_URL, headers=HF_HEADERS, 
     json={"inputs": ["test"]}, timeout=60)
-time.sleep(5)
+    time.sleep(5)
 
     # range(0, len, 10) creates [0, 10, 20, 30...]
     # this loops through texts in groups of 10
