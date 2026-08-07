@@ -11,25 +11,25 @@ A live AI-powered sentiment analysis dashboard that fetches real YouTube comment
 This dashboard fetches live YouTube comments about London tourism and classifies each one as **Positive**, **Negative**, or **Neutral** using Natural Language Processing. Results appear in real-time interactive charts, metrics, and a filterable comment browser — updated every session with fresh data.
 
 ---
-
 ## 🔄 Pipeline
-User selects a topic (e.g. "London restaurant review")
-↓
-YouTube Data API v3 searches for matching videos
-↓
-Up to 25 comments fetched per video
-↓
-TextBlob reads each comment and returns a polarity score (-1.0 to +1.0)
-↓
-Score converted to label: POSITIVE / NEGATIVE / NEUTRAL
-↓
-All results stored in a Pandas DataFrame
-↓
-Plotly renders donut chart + bar chart from the DataFrame
-↓
-Streamlit displays everything live in the browser
 
----
+```text
+User selects a topic (e.g. "London restaurant review")
+        ↓
+YouTube Data API v3 searches for matching videos
+        ↓
+Up to 25 comments fetched per video
+        ↓
+TextBlob reads each comment and returns a polarity score (-1.0 to +1.0)
+        ↓
+Score converted to label: POSITIVE / NEGATIVE / NEUTRAL
+        ↓
+All results stored in a Pandas DataFrame
+        ↓
+Plotly renders donut chart + bar chart from the DataFrame
+        ↓
+Streamlit displays everything live in the browser
+```
 
 ## 🎯 Why YouTube Comments?
 
