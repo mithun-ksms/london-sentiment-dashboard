@@ -1,22 +1,15 @@
-# london-sentiment-dashboard
-A live sentiment analysis dashboard for London Reddit posts using NLP and Plotly
-# London Sentiment Dashboard 📊
+# 🇬🇧 London YouTube Sentiment Dashboard
 
-A real-time sentiment analysis dashboard that analyses Reddit posts 
-about London attractions and visualises public opinion using NLP.
+A live AI-powered sentiment analysis dashboard that fetches real YouTube comments about London restaurants, attractions and tourism — classifies them as Positive, Negative or Neutral using NLP — and displays results in an interactive dashboard.
 
-## What it does
-- Fetches live posts from London-related subreddits using the Reddit API
-- Runs sentiment analysis (positive / negative / neutral) using HuggingFace Transformers
-- Displays results in an interactive Plotly dashboard built with Streamlit
+🔗 **Live App:** [london-sentiment-dashboard.streamlit.app](https://london-sentiment-dashboard-jytfrtvzpctpvau4rwpo3p.streamlit.app)
 
-## Tech stack
-- Python
-- PRAW (Reddit API)
-- HuggingFace Transformers
-- Plotly
-- Streamlit
-- Pandas
+---
 
-## Status
-Currently in development — July 2026
+## 📌 What This Project Does
+
+This dashboard fetches live YouTube comments about London tourism and classifies each one as **Positive**, **Negative**, or **Neutral** using Natural Language Processing. Results appear in real-time interactive charts, metrics, and a filterable comment browser — updated every session with fresh data.
+
+---
+
+## 🔄 Pipeline
