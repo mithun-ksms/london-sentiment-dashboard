@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import requests
-import time
+from textblob import TextBlob
 from googleapiclient.discovery import build
 
 # Must be first streamlit command always
@@ -36,99 +35,65 @@ st.markdown("Analysing **live** YouTube comments about London restaurants, attra
 st.markdown("---")
 
 # READ SECRETS
-# st.secrets reads safely from Streamlit's secure settings
-# Never put actual keys in code
+# st.secrets reads from Streamlit's secure settings
+# Never put actual keys directly in code
 YOUTUBE_API_KEY = st.secrets["YOUTUBE_API_KEY"]
-HF_API_TOKEN    = st.secrets["HF_API_TOKEN"]
 
-# Connect to YouTube
+# Connect to YouTube API
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 
-# HuggingFace API settings
-# Instead of running model locally we send text to HuggingFace servers
-# They run the model and send back the result
-# This means no torch needed on our server
-HF_API_URL = "https://api-inference.huggingface.co/models/distilbert-base-uncased-finetuned-sst-2-english"
-HF_HEADERS = {"Authorization": f"Bearer {HF_API_TOKEN}"}
-
 # SENTIMENT FUNCTION
+# TextBlob runs directly on the server — no external API needed
+# polarity is a score from -1.0 (very negative) to +1.0 (very positive)
+# We convert that number into a label: POSITIVE, NEGATIVE, or NEUTRAL
 def analyse_sentiment(texts):
-    # We send texts in batches of 10
-    # Batch processing is faster than one at a time
     results = []
-# Wake up the model first with a test request
-    requests.post(HF_API_URL, headers=HF_HEADERS, 
-    json={"inputs": ["test"]}, timeout=60)
-    time.sleep(5)
 
-    # range(0, len, 10) creates [0, 10, 20, 30...]
-    # this loops through texts in groups of 10
-    for i in range(0, len(texts), 10):
-
-        # texts[i:i+10] gets the next 10 texts
-        batch = texts[i:i+10]
-
+    for text in texts:
         try:
-            # requests.post sends data to HuggingFace API
-            # json= sends our texts as JSON format
-            # headers= sends our API token for authentication
-            response = requests.post(
-                HF_API_URL,
-                headers=HF_HEADERS,
-                json={"inputs": batch},
-                timeout=70  # give up after 30 seconds
-            )
+            # Create a TextBlob object from the comment text
+            blob = TextBlob(str(text))
 
-            # If model is loading HuggingFace returns 503
-            # We wait 10 seconds and try again
-            if response.status_code == 503:
-                time.sleep(30)
-                response = requests.post(
-                    HF_API_URL,
-                    headers=HF_HEADERS,
-                    json={"inputs": batch},
-                    timeout=70
-                    
-                )
+            # .sentiment.polarity gives a number between -1 and 1
+            polarity = blob.sentiment.polarity
 
-            # .json() converts response to Python list
-            batch_results = response.json()
+            # Convert polarity number into a label
+            # above 0.05 = POSITIVE
+            # below -0.05 = NEGATIVE
+            # in between = NEUTRAL (ambiguous text)
+            if polarity > 0.05:
+                label = "POSITIVE"
+                score = round(polarity, 2)
+            elif polarity < -0.05:
+                label = "NEGATIVE"
+                score = round(abs(polarity), 2)
+            else:
+                label = "NEUTRAL"
+                score = round(abs(polarity), 2)
 
-            # Each result is a list of dicts with label and score
-            # We pick the one with highest score
-            for result in batch_results:
-                if isinstance(result, list):
-                    # max() finds dict with highest score value
-                    best = max(result, key=lambda x: x["score"])
-                    results.append({
-                        "sentiment": best["label"],
-                        "score":     round(best["score"], 2)
-                    })
-                else:
-                    results.append({
-                        "sentiment": "NEUTRAL",
-                        "score":     0.5
-                    })
+            results.append({
+                "sentiment": label,
+                "score":     score
+            })
 
         except Exception:
-            # If anything fails add neutral for that batch
-            for _ in batch:
-                results.append({
-                    "sentiment": "NEUTRAL",
-                    "score":     0.5
-                })
+            # If anything fails for this comment mark it neutral
+            results.append({
+                "sentiment": "NEUTRAL",
+                "score":     0.0
+            })
 
     return results
 
 # FETCH YOUTUBE COMMENTS
 # @st.cache_data remembers results for 1 hour
-# so clicking filters doesn't refetch from YouTube
+# so clicking filters doesn't re-fetch from YouTube every time
 @st.cache_data(ttl=3600)
 def fetch_comments(topic, num_videos):
 
     all_rows = []
 
-    # Search YouTube for videos on this topic
+    # Search YouTube for videos matching our topic
     search_response = youtube.search().list(
         q=topic,
         type="video",
@@ -142,6 +107,7 @@ def fetch_comments(topic, num_videos):
 
         try:
             # Fetch comments for this video
+            # textFormat="plainText" removes any HTML from comments
             comments_response = youtube.commentThreads().list(
                 part="snippet",
                 videoId=video_id,
@@ -158,11 +124,12 @@ def fetch_comments(topic, num_videos):
                 })
 
         except Exception:
+            # Some videos have comments disabled — skip them
             continue
 
     return pd.DataFrame(all_rows)
 
-# SIDEBAR
+# SIDEBAR CONTROLS
 st.sidebar.header("🔍 Controls")
 
 topic = st.sidebar.selectbox(
@@ -185,7 +152,7 @@ num_videos = st.sidebar.slider(
 
 sentiment_filter = st.sidebar.radio(
     "Filter by sentiment",
-    options=["All", "POSITIVE", "NEGATIVE"]
+    options=["All", "POSITIVE", "NEGATIVE", "NEUTRAL"]
 )
 
 fetch_btn = st.sidebar.button("🔄 Fetch Live Data")
@@ -200,28 +167,25 @@ if fetch_btn:
         st.warning("No comments found — try a different topic.")
 
     else:
-        with st.spinner("🧠 Running sentiment analysis via HuggingFace..."):
-            # Get list of comment texts
+        with st.spinner("🧠 Running sentiment analysis..."):
             texts = df_raw["comment"].tolist()
-
-            # Run sentiment on all of them
             sentiment_results = analyse_sentiment(texts)
 
-            # Add results back to our DataFrame
             df_raw["sentiment"] = [r["sentiment"] for r in sentiment_results]
             df_raw["score"]     = [r["score"]     for r in sentiment_results]
             df = df_raw.copy()
 
-        # APPLY FILTER
+        # APPLY SENTIMENT FILTER
         if sentiment_filter != "All":
             filtered = df[df["sentiment"] == sentiment_filter]
         else:
             filtered = df
 
-        # METRICS
+        # METRIC CARDS
         total    = len(df)
         positive = len(df[df["sentiment"] == "POSITIVE"])
         negative = len(df[df["sentiment"] == "NEGATIVE"])
+        neutral  = len(df[df["sentiment"] == "NEUTRAL"])
         pct      = round((positive / total) * 100) if total > 0 else 0
 
         c1, c2, c3, c4 = st.columns(4)
@@ -309,14 +273,14 @@ if fetch_btn:
 
         st.markdown("---")
 
-        # COMMENTS
+        # COMMENTS TABLE
         st.subheader("💬 Comments")
         for i, row in filtered.iterrows():
-            emoji = "😊" if row["sentiment"] == "POSITIVE" else "😞"
+            emoji = "😊" if row["sentiment"] == "POSITIVE" else "😞" if row["sentiment"] == "NEGATIVE" else "😐"
             with st.expander(f"{emoji} {str(row['comment'])[:80]}..."):
                 st.write(row["comment"])
                 st.caption(f"📹 {row['video_title']}")
-                st.caption(f"Sentiment: **{row['sentiment']}** | Confidence: **{row['score']}**")
+                st.caption(f"Sentiment: **{row['sentiment']}** | Score: **{row['score']}**")
 
 else:
     st.info("👈 Pick a topic in the sidebar and click **Fetch Live Data** to begin.")
